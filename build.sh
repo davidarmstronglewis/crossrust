@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 
-REMOTEUSER=${USER}  # Remote login for root not allowed in default settings
-REMOTEIP=127.0.0.1  # Remote machine is in a VirtualBox on localhost
-REMOTEPORT=2222     # VirtualBox might require port forwarding on localhost
+REMOTEUSER=pi       # Remote login for root not allowed in default settings
+REMOTEIP=pi_lewis   # Remote machine is in a VirtualBox on localhost
+REMOTEPORT=22       # VirtualBox might require port forwarding on localhost
 
 # ^^^ DEFINITELY CONFIGURE THE ABOVE ^^^
 
@@ -14,16 +14,14 @@ DOWNLOAD=`pwd`/download
 LOG=${PREFIX}/build.log
 NCPUS=`sysctl -n hw.ncpu`
 GCCMAJOR=8
-BINUTILSVERSION=2.30
+BINUTILSVERSION=2.31
 MPFRVERSION=4.0.1
 MPCVERSION=1.1.0
 GMPVERSION=6.1.2
 
 # ^^^ TWEAK ABOVE IF NEEDED ^^^
 
-REMOTEVERSIONLONG=`ssh -p ${REMOTEPORT} ${REMOTEUSER}@${REMOTEIP} sysctl -n kern.osreldate` || (echo Error reading remote OS version && exit)
-REMOTEVERSION=${REMOTEVERSIONLONG:0:2}
-TARGET=x86_64-unknown-freebsd${REMOTEVERSION}
+TARGET=arm-unknown-linux-gnueabihf
 
 export CC=/usr/local/bin/gcc-${GCCMAJOR}
 export CXX=/usr/local/bin/g++-${GCCMAJOR}
@@ -165,8 +163,8 @@ if [ ! -f ${PREFIX}/.rustup ]
 then
     echo "===> Installing rust toolchains"
     rustup toolchain install nightly
-    rustup target add x86_64-unknown-freebsd || exit 1
-    rustup toolchain install nightly-x86_64-unknown-freebsd || exit 1
+    rustup target add ${TARGET} || exit 1
+    rustup toolchain install nightly-${TARGET} || exit 1
     touch ${PREFIX}/.rustup
 else
     echo "===> Skipping install rust toolchains"
@@ -179,8 +177,8 @@ then
     cd ${PREFIX}
     mkdir -p .cargo || exit 1
     cat <<EOF > .cargo/config
-[target.x86_64-unknown-freebsd]
-linker = "${TOOLCHAIN}/bin/x86_64-unknown-freebsd${REMOTEVERSION}-gcc"
+[target.${TARGET}]
+linker = "${TOOLCHAIN}/bin/${TARGET}-gcc"
 EOF
     touch ${PREFIX}/.linker
 else
@@ -196,8 +194,8 @@ then
     cargo new --bin helloworld || exit 1
     cd helloworld
     rustup override set nightly || exit 1
-    cargo build --target x86_64-unknown-freebsd || exit 1
-    file target/x86_64-unknown-freebsd/debug/helloworld | grep -q FreeBSD && Echo "Successfully cross compiled FreeBSD binary" || (echo "Something is wrong the the compiled rust binary" && exit 1)
+    cargo build --target ${TARGT} || exit 1
+    file target/${TARGET}/debug/helloworld | grep -q $TARGET && echo "Successfully cross compiled ARM binary" || (echo "Something is wrong the the compiled rust binary" && exit 1)
     touch ${PREFIX}/.helloworld
 else
     echo "===> Skipping build rust hello world crate"
@@ -211,7 +209,7 @@ umount ${SYSROOT}
 # Run on remote machine
 #
 echo "===> Copy binary to remote machine"
-scp -P ${REMOTEPORT} ${PREFIX}/helloworld/target/x86_64-unknown-freebsd/debug/helloworld ${REMOTEUSER}@${REMOTEIP}:/tmp/helloworld  > /dev/null || exit 1
+scp -P ${REMOTEPORT} ${PREFIX}/helloworld/target/${TARGET}/debug/helloworld ${REMOTEUSER}@${REMOTEIP}:/tmp/helloworld  > /dev/null || exit 1
 
-echo "===> Executing binary on remote FreeBSD machine. Expected output is \"Hello, world!\", actual output is: "
+echo "===> Executing binary on remote ARM machine. Expected output is \"Hello, world!\", actual output is: "
 ssh -p ${REMOTEPORT} ${REMOTEUSER}@${REMOTEIP} /tmp/helloworld
