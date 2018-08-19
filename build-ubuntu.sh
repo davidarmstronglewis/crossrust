@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
 REMOTEUSER=pi       # Remote login for root not allowed in default settings
-REMOTEIP=pi_lewis   # Remote machine is in a VirtualBox on localhost
+REMOTEIP=lewis_pi   # Remote machine is in a VirtualBox on localhost
 REMOTEPORT=22       # VirtualBox might require port forwarding on localhost
 
 # ^^^ DEFINITELY CONFIGURE THE ABOVE ^^^
@@ -12,8 +12,8 @@ SYSROOT=${PREFIX}/sysroot_mount
 BUILD=${PREFIX}/build
 DOWNLOAD=`pwd`/download
 LOG=${PREFIX}/build.log
-NCPUS=`sysctl -n hw.ncpu`
-GCCMAJOR=8
+NCPUS=`grep -m 1 'cpu cores' /proc/cpuinfo | awk '{print $4}'` # `sysctl -n hw.ncpu`
+GCCMAJOR=7
 BINUTILSVERSION=2.31
 MPFRVERSION=4.0.1
 MPCVERSION=1.1.0
@@ -21,13 +21,13 @@ GMPVERSION=6.1.2
 
 # ^^^ TWEAK ABOVE IF NEEDED ^^^
 
-GCC_TARGET_TRIPLET=arm-linux-gnueabihf
 RUST_TARGET_TRIPLET=arm-unknown-linux-gnueabihf
+GCC_TARGET_TRIPLET=${RUST_TARGET_TRIPLET} #arm-linux-gnueabihf
 
-export CC=/usr/local/bin/gcc-${GCCMAJOR}
-export CXX=/usr/local/bin/g++-${GCCMAJOR}
-export CPP=/usr/local/bin/cpp-${GCCMAJOR}
-export LD=/usr/local/bin/gcc-${GCCMAJOR}
+export CC=/usr/bin/gcc-${GCCMAJOR}
+export CXX=/usr/bin/g++-${GCCMAJOR}
+export CPP=/usr/bin/cpp-${GCCMAJOR}
+export LD=/usr/bin/gcc-${GCCMAJOR}
 
 if [ ! -d ${PREFIX} ]
 then
@@ -46,21 +46,8 @@ echo Starting log > ${LOG}
 rsync --version >> ${LOG} && echo "===> Found rsync" || (echo "Please install rsync" && exit 1)
 ssh -p ${REMOTEPORT} ${REMOTEUSER}@${REMOTEIP} rsync --version >> ${LOG}  && echo "===> Found remote rsync"  || (echo "Please install rsync on remote machine" && exit 1)
 
-brew -v >> ${LOG} && echo "===> Found brew" || (echo "Please install brew" && exit 1)
-if [ ! -f ${PREFIX}/.brew ]
-then
-    echo "===> Installing tools with brew"
-    brew install gcc@${GCCMAJOR} || exit 1
-    brew install wget || exit 1
-    brew cask install osxfuse || exit 1
-    brew install sshfs || exit 1
-    touch ${PREFIX}/.brew
-else
-    echo "===> Skipping install tools"
-fi
-
 ${CC} --version >> ${LOG} && echo "===> Found ${CC}" || (echo "${CC} not found" && exit 1)
-GCCVERSION=`${CC} --version | head -n 1 | awk '{print $5}'`
+GCCVERSION=`${CC} --version | head -n 1 | awk '{print $4}'`
 
 
 echo "===> Mounting remote root with sshfs as sysroot at ${SYSROOT}"
@@ -69,15 +56,22 @@ sshfs -p ${REMOTEPORT} -o idmap=user,follow_symlinks ${REMOTEUSER}@${REMOTEIP}:/
 #
 # Download tarballs
 #
+
+BINUTILS_NAME=binutils-${BINUTILSVERSION}
+MPFR_NAME=mpfr-${MPFRVERSION}
+MPC_NAME=mpc-${MPCVERSION}
+GMP_NAME=gmp-${GMPVERSION}
+GCC_NAME=gcc-${GCCVERSION}
+
 if [ ! -f ${PREFIX}/.fetch ]
 then
     echo "===> Fetching tarballs"
     cd ${DOWNLOAD}
-    wget -c http://ftp.gnu.org/gnu/binutils/binutils-${BINUTILSVERSION}.tar.gz || exit 1
-    wget -c http://ftp.gnu.org/gnu/mpfr/mpfr-${MPFRVERSION}.zip || exit 1
-    wget -c http://ftp.gnu.org/gnu/mpc/mpc-${MPCVERSION}.tar.gz || exit 1
-    wget -c http://ftp.gnu.org/gnu/gmp/gmp-${GMPVERSION}.tar.xz || exit 1
-    wget -c http://ftp.gnu.org/gnu/gcc/gcc-${GCCVERSION}/gcc-${GCCVERSION}.tar.gz || exit 1
+    wget -c http://ftp.gnu.org/gnu/binutils/${BINUTILS_NAME}.tar.gz || exit 1
+    wget -c http://ftp.gnu.org/gnu/mpfr/${MPFR_NAME}.zip || exit 1
+    wget -c http://ftp.gnu.org/gnu/mpc/${MPC_NAME}.tar.gz || exit 1
+    wget -c http://ftp.gnu.org/gnu/gmp/${GMP_NAME}.tar.xz || exit 1
+    wget -c http://ftp.gnu.org/gnu/gcc/${GCC_NAME}/${GCC_NAME}.tar.gz || exit 1
     touch ${PREFIX}/.fetch
 else
     echo "===> Skipping fetch tarballs"
@@ -91,11 +85,11 @@ if [ ! -f ${PREFIX}/.extract ]
 then
     echo "===> Extracting tarballs"
     cd ${BUILD}
-    tar xf ${DOWNLOAD}/binutils-${BINUTILSVERSION}.tar.gz || exit 1
-    unzip -q ${DOWNLOAD}/mpfr-${MPFRVERSION}.zip || exit 1
-    tar xf ${DOWNLOAD}/mpc-${MPCVERSION}.tar.gz || exit 1
-    tar xf ${DOWNLOAD}/gmp-${GMPVERSION}.tar.xz || exit 1
-    tar xf ${DOWNLOAD}/gcc-${GCCVERSION}.tar.gz || exit 1
+    tar xf ${DOWNLOAD}/${BINUTILS_NAME}.tar.gz || exit 1
+    unzip -q ${DOWNLOAD}/${MPFR_NAME}.zip || exit 1
+    tar xf ${DOWNLOAD}/${MPC_NAME}.tar.gz || exit 1
+    tar xf ${DOWNLOAD}/${GMP_NAME}.tar.xz || exit 1
+    tar xf ${DOWNLOAD}/${GCC_NAME}.tar.gz || exit 1
     touch ${PREFIX}/.extract
 else
     echo "===> Skipping extract tarballs"
@@ -111,7 +105,7 @@ then
     cd ${BUILD}
     mkdir -p build-binutils || exit 1
     cd build-binutils
-    ../binutils-${BINUTILSVERSION}/configure --prefix=${TOOLCHAIN} --target=${GCC_TARGET_TRIPLET} --with-sysroot=${SYSROOT} \
+    ../${BINUTILS_NAME}/configure --prefix=${TOOLCHAIN} --target=${GCC_TARGET_TRIPLET} --with-sysroot=${SYSROOT} \
 		--enable-interwork --enable-multilib --disable-nls --disable-werror || exit 1
     make -j${NCPUS} || exit 1
     make install || exit 1
@@ -126,10 +120,29 @@ fi
 # GCC
 #
 # Link in libraries so they will be built together with gcc.
+
+MPFR_SRC=${BUILD}/${MPFR_NAME}
+MPC_SRC=${BUILD}/${MPC_NAME}
+GMP_SRC=${BUILD}/${GMP_NAME}
+
+MPFR_DEST=${BUILD}/${GCC_NAME}/mpfr
+MPC_DEST=${BUILD}/${GCC_NAME}/mpc
+GMP_DEST=${BUILD}/${GCC_NAME}/gmp
+
 cd ${BUILD}
-ln -sf mpfr-${MPFRVERSION} gcc-${GCCVERSION}/mpfr || exit 1
-ln -sf mpc-${MPCVERSION} gcc-${GCCVERSION}/mpc || exit 1
-ln -sf gmp-${GMPVERSION} gcc-${GCCVERSION}/gmp || exit 1
+ln -sf ${MPFR_SRC} ${MPFR_DEST} || exit 1
+ln -sf ${MPC_SRC} ${MPC_DEST} || exit 1
+ln -sf ${GMP_SRC} ${GMP_DEST} || exit 1
+
+# MPFR_NAME: mpfr-4.0.1
+# MPC_NAME: mpc-1.1.0
+# GMP_NAME: gmp-6.1.2
+# CWD: /home/armstrong/builder/crossrust/build
+# GCC_NAME:/mpfr gcc-7.2.0/mpfr
+# GCC_NAME:/mpc gcc-7.2.0/mpc
+# GCC_NAME:/gmp gcc-7.2.0/gmp
+# PREFIX: /home/armstrong/builder/crossrust
+# BUILD: /home/armstrong/builder/crossrust/build
 
 # Build GCC
 if [ ! -f ${PREFIX}/.buildgcc ]
@@ -140,11 +153,11 @@ then
     mkdir -p build-gcc || exit 1
     cd build-gcc
 
-    ../gcc-${GCCVERSION}/configure --prefix=${TOOLCHAIN} --target=${GCC_TARGET_TRIPLET} --with-sysroot=${SYSROOT} \
-      --with-arch=armv6 --with-fpu=vfp --with-float=hard --disable-multilib \
-      || exit 1
-     
-	   # --disable-nls --enable-languages=c,c++ --without-headers --enable-multilib || exit 1
+    ../${GCC_NAME}/configure --prefix=${TOOLCHAIN} --target=${GCC_TARGET_TRIPLET} --with-sysroot=${SYSROOT} \
+    --with-arch=armv6 --with-fpu=vfp --with-float=hard --disable-multilib \
+    || exit 1
+
+	   # --disable-nls --enable-languages=c,c++ --without-headers --enable-multilib \ 
 
     make -j${NCPUS} || exit 1
     make install || exit 1
@@ -200,8 +213,9 @@ then
     cargo new --bin helloworld || exit 1
     cd helloworld
     rustup override set nightly || exit 1
-    RUSTFLAGS='-Z linker-flavor=ld.lld' cargo build --target ${TARGT} || exit 1
-    file target/${RUST_TARGET_TRIPLET}/debug/helloworld | grep -q $RUST_TARGET_TRIPLET && echo "Successfully cross compiled ARM binary" || (echo "Something is wrong the the compiled rust binary" && exit 1)
+
+    cargo build --target ${RUST_TARGET_TRIPLET} || exit 1
+    file target/${RUST_TARGET_TRIPLET}/debug/helloworld | grep -q ${RUST_TARGET_TRIPLET} && echo "Successfully cross compiled ARM binary" || (echo "Something is wrong the the compiled rust binary" && exit 1)
     touch ${PREFIX}/.helloworld
 else
     echo "===> Skipping build rust hello world crate"
@@ -209,13 +223,13 @@ fi
 
 
 echo "===> Unmounting sysroot"
-umount ${SYSROOT}
+sudo umount ${SYSROOT}
 
 #
 # Run on remote machine
 #
 echo "===> Copy binary to remote machine"
-scp -P ${REMOTEPORT} ${PREFIX}/helloworld/target/${TARGET}/debug/helloworld ${REMOTEUSER}@${REMOTEIP}:/tmp/helloworld  > /dev/null || exit 1
+scp -P ${REMOTEPORT} ${PREFIX}/helloworld/target/${RUST_TARGET_TRIPLET}/debug/helloworld ${REMOTEUSER}@${REMOTEIP}:/tmp/helloworld  > /dev/null || exit 1
 
 echo "===> Executing binary on remote ARM machine. Expected output is \"Hello, world!\", actual output is: "
 ssh -p ${REMOTEPORT} ${REMOTEUSER}@${REMOTEIP} /tmp/helloworld
